@@ -3040,7 +3040,6 @@ int refresh_extensions_in_namespace(
         _cleanup_free_ char *extension_dir = NULL, *incoming_dir = NULL;
         _cleanup_strv_free_ char **hierarchies = NULL;
 
-        // TODO: Are we doing the right thing with error propagation?
         // TODO: Set up root image.
 
         int r;
@@ -3081,8 +3080,7 @@ int refresh_extensions_in_namespace(
                                   mount_entry_path(m));
                         r = apply_one_mount("/", m, &p);
                         if (r < 0) {
-                                log_error_errno(r, "Failed to apply extension mount: %m");
-                                return r;
+                                return log_error_errno(r, "Failed to apply extension mount: %m");
                         }
                 }
         }
@@ -3097,10 +3095,9 @@ int refresh_extensions_in_namespace(
                                   strv_join(m->overlay_layers, ", "));
 
                         r = mount_overlay(m);
-                        if (r < 0) {
-                                log_error_errno(r, "Failed to mount overlay: %m");
-                                return r;
-                        } else if (r == 0)
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to setup new overlay: %m");
+                        else if (r == 0) /* Tried to mount overlay, but skipped. */
                                 continue;
 
                         /* Within the namespace, the mount point is just the
@@ -3113,10 +3110,12 @@ int refresh_extensions_in_namespace(
                                 return -ENOMEM;
 
                         r = bind_mount_in_namespace(target, propagate_dir, incoming_dir, mount_entry_path(m), dir_slash_relative, false, true);
-                        if (r < 0) {
-                                log_error_errno(r, "Failed to move overlay within %s->%s: %m", mount_entry_path(m), dir_slash_relative);
-                                return r;
-                        }
+                        if (r < 0)
+                                return log_error_errno(r,
+                                                       "Failed to move overlay within %s->%s: %m",
+                                                       mount_entry_path(m),
+                                                       dir_slash_relative);
+
 
                         /* Undo the host-side overlay mount after namespace bind mount. */
                         r = umount_recursive(mount_entry_path(m), /* flags = */ 0);
@@ -3131,6 +3130,8 @@ int refresh_extensions_in_namespace(
         if (r < 0)
                 log_debug_errno(r, "Failed to unmount below extension dir '%s': %m", extension_dir);
         return 0;
+
+        // TODO: Have a separate clean up block?
 }
 
 
