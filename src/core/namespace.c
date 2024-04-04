@@ -2477,7 +2477,7 @@ int setup_namespace(const NamespaceParameters *p, char **error_path) {
                 };
         }
 
-        if (p->notify_socket) {
+        if (p->notify_socket) {·
                 MountEntry *me = mount_list_extend(&ml);
                 if (!me)
                         return log_oom_debug();
@@ -3062,8 +3062,6 @@ int refresh_extensions_in_namespace(
 
         // TODO: See what we need to do about old kernel versions without new mount API.
         // TODO: Extension image policy (maybe move set up to service.c)
-        // TODO: Combine the two, since the types of mounts go one after the other.
-        /* First round, set up all the extension mounts first. */
         NamespaceParameters p = {
                 .root_directory = root_dir,
                 .extension_dir = extension_dir,
@@ -3072,27 +3070,28 @@ int refresh_extensions_in_namespace(
                 .runtime_scope = geteuid() == 0 ? RUNTIME_SCOPE_SYSTEM : RUNTIME_SCOPE_USER,
         };
 
+        /* This is effectively two rounds, since all the extensions come before
+         * overlays (setup_namespace() similarly relies on this property).
+         *
+         * (1) First, set up all the extension mounts in the system, which are
+         * not visible from the process. (2) Then, set up overlays for the
+         * sysext/confext hierarchies again using the new extension mounts as
+         * layers, and move them into the namespace. */
         FOREACH_ARRAY(m, ml.mounts, ml.n_mounts) {
+                _cleanup_free_ char *dir_relative = NULL, *dir_slash_relative = NULL;
+
                 if (m->mode == MOUNT_EXTENSION_DIRECTORY || m->mode == MOUNT_EXTENSION_IMAGE) {
                         log_debug("refresh_extensions %s src=%s path=%s",
                                   mount_mode_to_string(m->mode),
                                   mount_entry_source(m),
-                                  mount_entry_path(m));
-                        r = apply_one_mount("/", m, &p);
-                        if (r < 0) {
+                                  mount_entry_path(m)); // TODO: remove
+                        r = apply_one_mount("/", m, &p); // TODO: change once we set up root properly.
+                        if (r < 0)
                                 return log_error_errno(r, "Failed to apply extension mount: %m");
-                        }
-                }
-        }
-
-        /* Second round, do the overlays within the process namespace. */
-        FOREACH_ARRAY(m, ml.mounts, ml.n_mounts) {
-                _cleanup_free_ char *dir_relative = NULL, *dir_slash_relative = NULL;
-
-                if (m->mode == MOUNT_OVERLAY) {
+                } else if (m->mode == MOUNT_OVERLAY) {
                         log_debug("refresh_extensions overlay path=%s layers=%s (now)",
                                   mount_entry_path(m),
-                                  strv_join(m->overlay_layers, ", "));
+                                  strv_join(m->overlay_layers, ", "));  // TODO: remove
 
                         r = mount_overlay(m);
                         if (r < 0)
